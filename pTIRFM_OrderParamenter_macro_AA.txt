@@ -1,0 +1,150 @@
+// pTIRFM_OrderParameter ImageJ macro
+// Created and modified Aug 2016 by Aaron Au
+// Adapted from macro created by John Oreopolous 08 Nov 2004 and modified by Gill Vanderlee in 2013
+// Calculates polarized TIRF detected linear dichroism order parameter per pixel for entire TIRF field
+// add variable x_start, y_start, input wave as laser wavelength for file naming, cropped image in pixel
+// get directory and save files in one place; create different folders; close all images after processing
+
+
+//variable for cropping
+var x_start = getNumber("please input x", 120);
+var y_start = getNumber("please input y", 120);
+var wave = "473";
+var size = getNumber("please input size (px)", 250);
+
+setBatchMode(true);
+
+// Constants
+var alpha = 60.0; // Angle of incidence for illumination beam
+var n1 = 1.3326; // Refractive index of medium (water)
+var n2 = 1.5750; // Refractive index of substrate (mica)
+var pi = 3.141592654;
+var n = n1/n2; // Relative index of refraction
+var ralpha = alpha*pi/180;
+var mag = 0.127;
+
+// Calculate evanescent field intensity components
+var Ix = (4*cos(ralpha)*cos(ralpha)*(sin(ralpha)*sin(ralpha)-n*n))/((1-n*n)*((1+n*n)*sin(ralpha)*sin(ralpha)-n*n));
+var Iy = (4*cos(ralpha)*cos(ralpha))/(1-n*n);
+var Iz = (4*cos(ralpha)*cos(ralpha)*sin(ralpha)*sin(ralpha))/((1-n*n)*((1+n*n)*sin(ralpha)*sin(ralpha)-n*n));
+
+// Prompt where to find Fs and Fp files and where to save them
+getdir= getDirectory("Choose Get Directory");
+savedir= getDirectory("Choose where to save your files");
+
+// Prompt for starting image number and end image number
+// If stack is too large, macro will run out of memory (rerun macro with next set of image numbers)
+
+tempstart=getNumber("Start image number", 0);
+tempend=getNumber("End image number", 0);
+
+
+// Prompt for the min and max OP values - this is the scale the jpg will be saved with
+low = getNumber("Choose minimum P2 value - Minimum of -1.0", 0);
+high = getNumber("Choose maximum P2 value - Maximum of 1", 0);
+
+// Loop through each image number and create corresponding OP image
+for (i=tempstart; i<tempend+1; i++)
+{
+	File.makeDirectory(savedir+"/process "+ i +"/");
+	tempsavedir = savedir + "/process "+ i +"/";
+	//tempsavedir = savedir;
+
+	// Retrieve Fs image
+	// May need to change the path if images are saved with a different format
+	if(i<10){
+		open(getdir+"/img_00000000"+i+"_Fs" + wave + "_000.tif");
+	} else if (i<100) {
+		open(getdir+"/img_0000000"+i+"_Fs" + wave + "_000.tif");
+	} else {
+		open(getdir+"/img_000000"+i+"_Fs" + wave + "_000.tif");
+	}
+	rename("Fs"+i);
+	run("32-bit");
+
+	// Retrieve Fp image
+	// May need to change the path if images are saved with a different format
+	if(i<10)
+	{
+		open(getdir+"/img_00000000"+i+"_Fp" + wave + "_000.tif");
+	} else if (i<100) {
+		open(getdir+"/img_0000000"+i+"_Fp" + wave + "_000.tif");
+	} else {
+		open(getdir+"/img_000000"+i+"_Fp" + wave + "_000.tif");
+	}
+	rename("Fp"+i);
+	run("32-bit");
+
+	// Calculate fluorescence-detected dichroic ratio image
+	imageCalculator("Divide create 32-bit", "Fp"+i,"Fs"+i);
+	selectWindow("Result of Fp"+i);
+	rename("FDDichroicRatio_V2_"+i+".tif");
+	selectWindow("FDDichroicRatio_V2_"+i+".tif");
+	run("Duplicate...","title=[P2Numerator]");
+	rename("P2Numerator"+i);
+	selectWindow("P2Numerator"+i);
+	run("Multiply...", "value=-1");
+	run("Multiply...", "value="+Iy);
+	var V1= Ix+Iz;
+	run("Add...", "value="+V1);
+	selectWindow("FDDichroicRatio_V2_"+i+".tif");
+	run("Duplicate...","title=[P2Demnoinator]");
+	rename("P2Denominator"+i);	
+	selectWindow("P2Denominator"+i);
+	run("Multiply...", "value=-1");
+	run("Multiply...", "value="+Iy);
+	var V2= Ix-2*Iz;
+	run("Add...", "value="+V2);
+
+	// Calculate order parameter image and save tiff and jpg
+	imageCalculator("Divide create 32-bit", "P2Numerator"+i,"P2Denominator"+i);
+	selectWindow("Result of P2Numerator"+i);
+	rename("pTIRFM_OrderParameter_"+i+".tif");
+	//run("Set Scale...", "distance=1 known=mag pixel=1 unit=um");
+	run("Set Scale...", "distance=1 known="+mag+" pixel=1 unit=um");
+	run("Fire");
+	setMinAndMax(low,high);
+	save(tempsavedir + "pTIRFM_OrderParameter_"+i+".tif");
+	save(tempsavedir + "pTIRFM_OrderParameter_"+i+".jpg");
+	
+	// Crops OP image down to specified size and saves cropped tiff and jpg
+	selectWindow("pTIRFM_OrderParameter_"+i+".tif");
+	makeRectangle(x_start, y_start, size, size);
+	run("Crop");
+	run("Fire");
+	save(tempsavedir + "crop_pTIRFM_OrderParameter_"+i+".tif");
+	save(tempsavedir + "crop_pTIRFM_OrderParameter_"+i+".jpg");
+
+	//Crop Fs and Fp
+	if(i<10){
+		open(getdir+"/img_00000000"+i+"_Fs" + wave + "_000.tif");
+	} else if (i<100) {
+		open(getdir+"/img_0000000"+i+"_Fs" + wave + "_000.tif");
+	} else {
+		open(getdir+"/img_000000"+i+"_Fs" + wave + "_000.tif");
+	}
+	makeRectangle(x_start, y_start, size, size);
+	run("Crop");
+	save(tempsavedir + "crop_Fs_"+i+".tif");
+	save(tempsavedir + "crop_Fs_"+i+".jpg");
+	
+	if(i<10){
+		open(getdir+"/img_00000000"+i+"_Fp" + wave + "_000.tif");
+	} else if (i<100) {
+		open(getdir+"/img_0000000"+i+"_Fp" + wave + "_000.tif");
+	} else {
+		open(getdir+"/img_000000"+i+"_Fp" + wave + "_000.tif");
+	}
+	makeRectangle(x_start, y_start, size, size);
+	run("Crop");
+	save(tempsavedir + "crop_Fp_"+i+".tif");
+	save(tempsavedir + "crop_Fp_"+i+".jpg");
+
+	while (nImages>0) { 
+          		selectImage(nImages); 
+          		close(); 
+      	} 
+}
+
+	
+setBatchMode(false);

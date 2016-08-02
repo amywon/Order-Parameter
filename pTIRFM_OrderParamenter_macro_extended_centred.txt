@@ -1,0 +1,138 @@
+// pTIRFM_OrderParameter ImageJ macro
+// Created by Gill Vanderlee
+// Adapted from macro created by John Oreopolous 08 Nov 2004
+// Last modified 22 May 2013
+// Calculates polarized TIRF detected linear dichroism order parameter per pixel for entire TIRF field
+// Prompt for lens (1x or 1.5x), where to find fs and fp images, where to save op images, image numbers, and mix and max op scale
+// Sets scale as 0.127 um per pixel for 1.5x lens or 0.195 um for 1x
+// Prompts for cropped image size and crops based on centroid of first Fs image
+// Uses fire colour table
+// Saves final OP image as tiff and jpg - no longer saves dichroism raw image
+// Also save cropped image files
+
+setBatchMode(true);
+
+// Constants
+var alpha = 60.0; // Angle of incidence for illumination beam
+var n1 = 1.3326; // Refractive index of medium (water)
+var n2 = 1.5750; // Refractive index of substrate (mica)
+var pi= 3.141592654;
+var n = n1/n2; // Relative index of refraction
+var ralpha = alpha*pi/180;
+
+// Calculate evanescent field intensity components
+var Ix = (4*cos(ralpha)*cos(ralpha)*(sin(ralpha)*sin(ralpha)-n*n))/((1-n*n)*((1+n*n)*sin(ralpha)*sin(ralpha)-n*n));
+var Iy = (4*cos(ralpha)*cos(ralpha))/(1-n*n);
+var Iz = (4*cos(ralpha)*cos(ralpha)*sin(ralpha)*sin(ralpha))/((1-n*n)*((1+n*n)*sin(ralpha)*sin(ralpha)-n*n));
+
+// Prompt for which lens was use (needed for scale)
+lens = getNumber("1x or 1.5x Lens", 1.5);
+if(lens == 1.5){
+		mag=0.127;
+	}
+	if(lens == 1){
+		mag=0.195;
+	}
+
+// Prompt where to find Fs and Fp files and where to save them
+getdir= getDirectory("Choose Get Directory");
+savedir= getDirectory("Choose where to save tiff files");
+savedirjpg = getDirectory("Choose where to save jpg files");
+size=getNumber("Chose cropped image size (um)", 20);
+savedircrop= getDirectory("Choose where to save cropped tiff files");
+savedircropjpg = getDirectory("Choose where to save cropped jpg files");
+
+
+// Prompt for starting image number and end image number
+// If stack is too large, macro will run out of memory (rerun macro with next set of image numbers)
+tempstart=getNumber("Start image number", 0);
+tempend=getNumber("End image number", 99);
+
+
+// Prompt for the min and max OP values - this is the scale the jpg will be saved with
+low = getNumber("Choose minimum P2 value - Minimum of -0.5", -0.3);
+high = getNumber("Choose maximum P2 value - Maximum of 1", 0.0);
+
+// Loop through each image number and create corresponding OP image
+for (i=tempstart; i<tempend+1; i++)
+{
+	// Retrieve Fs image
+	// May need to change the path if images are saved with a different format
+	if(i<10){
+		open(getdir+"/img_00000000"+i+"_Fs_000.tif");
+	} else if (i<100) {
+		open(getdir+"/img_0000000"+i+"_Fs_000.tif");
+	} else {
+		open(getdir+"/img_000000"+i+"_Fs_000.tif");
+	}
+	rename("Fs"+i);
+	run("32-bit");
+	
+	// Find centroid of image by using dark threshold and measure
+	if(i==tempstart){
+		run("Clear Results");
+		run("Set Measurements...", "area mean standard min center redirect=None decimal=4");
+		run("Duplicate...","title=Find_Centroid");
+		setAutoThreshold("Default dark");
+		run("NaN Background");
+		run("Measure");
+		xm=getResult("XM", 0);
+		ym=getResult("YM", 0);
+		selectWindow("Find_Centroid");
+		close();
+	}
+
+	// Retrieve Fp image
+	// May need to change the path if images are saved with a different format
+	if(i<10)
+	{
+		open(getdir+"/img_00000000"+i+"_Fp_000.tif");
+	} else if (i<100) {
+		open(getdir+"/img_0000000"+i+"_Fp_000.tif");
+	} else {
+		open(getdir+"/img_000000"+i+"_Fp_000.tif");
+	}
+	rename("Fp"+i);
+	run("32-bit");
+
+	// Calculate fluorescence-detected dichroic ratio image
+	imageCalculator("Divide create 32-bit", "Fp"+i,"Fs"+i);
+	selectWindow("Result of Fp"+i);
+	rename("FDDichroicRatio_V2_"+i+".tif");
+	selectWindow("FDDichroicRatio_V2_"+i+".tif");
+	run("Duplicate...","title=[P2Numerator]");
+	rename("P2Numerator"+i);
+	selectWindow("P2Numerator"+i);
+	run("Multiply...", "value=-1");
+	run("Multiply...", "value="+Iy);
+	var V1= Ix+Iz;
+	run("Add...", "value="+V1);
+	selectWindow("FDDichroicRatio_V2_"+i+".tif");
+	run("Duplicate...","title=[P2Demnoinator]");
+	rename("P2Denominator"+i);	
+	selectWindow("P2Denominator"+i);
+	run("Multiply...", "value=-1");
+	run("Multiply...", "value="+Iy);
+	var V2= Ix-2*Iz;
+	run("Add...", "value="+V2);
+
+	// Calculate order parameter image and save tiff and jpg
+	imageCalculator("Divide create 32-bit", "P2Numerator"+i,"P2Denominator"+i);
+	selectWindow("Result of P2Numerator"+i);
+	rename("pTIRFM_OrderParameter_"+i+".tif");
+	run("Set Scale...", "distance=1 known=mag pixel=1 unit=um");
+	run("Fire");
+	setMinAndMax(low,high);
+	save(savedir + "pTIRFM_OrderParameter_"+i+".tif");
+	save(savedirjpg + "pTIRFM_OrderParameter_"+i+".jpg");
+	
+	// Crops OP image down to specified size and saves cropped tiff and jpg
+	selectWindow("pTIRFM_OrderParameter_"+i+".tif");
+	makeRectangle(xm-size*0.5/mag, ym-size*0.5/mag, size/mag, size/mag);
+	run("Crop");
+	save(savedircrop + "crop_pTIRFM_OrderParameter_"+i+".tif");
+	save(savedircropjpg + "crop_pTIRFM_OrderParameter_"+i+".jpg");
+	
+}
+
+setBatchMode(false);
